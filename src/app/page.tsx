@@ -35,6 +35,12 @@ export default function Home() {
                 Ver Usuários
               </Link>
               <Link 
+                href="/dashboard" 
+                className="text-gray-600 hover:text-blue-600 px-6 py-2 rounded-lg font-medium transition-colors duration-200"
+              >
+                Dashboard
+              </Link>
+              <Link 
                 href="/cadastro" 
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors duration-200"
               >

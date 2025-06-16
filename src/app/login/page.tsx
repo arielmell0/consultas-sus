@@ -136,7 +136,7 @@ export default function LoginPage() {
         }
         
         alert(`Login realizado com sucesso!\n\nBem-vindo(a), ${user.email}!`);
-        router.push('/usuarios'); // Redirect to users page for now
+        router.push('/dashboard'); // Redirect to dashboard
       } else {
         setErrors({
           email: 'Email/CPF ou senha incorretos',
