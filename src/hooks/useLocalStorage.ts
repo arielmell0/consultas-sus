@@ -46,12 +46,12 @@ export interface SavedCredentials {
 export interface DoctorAppointment {
   id: string;
   doctorId: string;
-  patientName: string;
-  patientCpf: string;
-  patientPhone: string;
+  patientName?: string;
+  patientCpf?: string;
+  patientPhone?: string;
   specialty: string;
-  day: string;
-  time: string;
+  startTime: string;
+  endTime: string;
   date: string;
   status: 'scheduled' | 'completed' | 'cancelled';
   createdAt: string;
@@ -537,7 +537,16 @@ export const useLocalStorage = () => {
 
   // Get doctor appointments
   const getDoctorAppointments = (doctorId: string): DoctorAppointment[] => {
-    return doctorAppointments.filter(appointment => appointment.doctorId === doctorId);
+    try {
+      const storedDoctorAppointments = localStorage.getItem(DOCTOR_APPOINTMENTS_KEY);
+      if (!storedDoctorAppointments) return [];
+      
+      const allDoctorAppointments: DoctorAppointment[] = JSON.parse(storedDoctorAppointments);
+      return allDoctorAppointments.filter(appointment => appointment.doctorId === doctorId);
+    } catch (error) {
+      console.error('Error getting doctor appointments:', error);
+      return [];
+    }
   };
 
   // Update appointment status
@@ -566,6 +575,124 @@ export const useLocalStorage = () => {
       return true;
     } catch (error) {
       console.error('Error deleting doctor appointment:', error);
+      return false;
+    }
+  };
+
+  // Get all available doctor appointments for patient dashboard
+  const getAvailableDoctorAppointments = () => {
+    try {
+      const storedDoctorAppointments = localStorage.getItem(DOCTOR_APPOINTMENTS_KEY);
+      if (!storedDoctorAppointments) return [];
+      
+      const allDoctorAppointments: DoctorAppointment[] = JSON.parse(storedDoctorAppointments);
+      
+      // Filter only scheduled appointments without patients (available slots)
+      const availableSlots = allDoctorAppointments.filter(appointment => 
+        appointment.status === 'scheduled' && !appointment.patientName
+      );
+
+      // Get doctor information
+      const storedDoctors = localStorage.getItem(DOCTORS_KEY);
+      if (!storedDoctors) return [];
+      
+      const allDoctors: Doctor[] = JSON.parse(storedDoctors);
+
+      // Convert to format expected by patient dashboard
+      const convertedAppointments = availableSlots.map(appointment => {
+        const doctor = allDoctors.find(d => d.id === appointment.doctorId);
+        if (!doctor) return null;
+
+        // Convert date from DD/MM/YYYY to a day of week (simplified)
+        const dateParts = appointment.date.split('/');
+        const appointmentDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+        const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        const dayOfWeek = dayNames[appointmentDate.getDay()];
+
+        return {
+          day: dayOfWeek,
+          time: `${appointment.startTime} - ${appointment.endTime}`,
+          date: appointment.date,
+          doctorName: doctor.name,
+          doctorId: doctor.id,
+          specialty: appointment.specialty,
+          appointmentId: appointment.id
+        };
+      }).filter(Boolean);
+
+      return convertedAppointments;
+    } catch (error) {
+      console.error('Error getting available doctor appointments:', error);
+      return [];
+    }
+  };
+
+  // Book a doctor appointment created by a doctor
+  const bookDoctorAppointment = (appointmentId: string, userId: string, patientCpf?: string, patientPhone?: string): boolean => {
+    try {
+      // Get the appointment details first
+      const storedDoctorAppointments = localStorage.getItem(DOCTOR_APPOINTMENTS_KEY);
+      if (!storedDoctorAppointments) return false;
+      
+      const allDoctorAppointments: DoctorAppointment[] = JSON.parse(storedDoctorAppointments);
+      const appointment = allDoctorAppointments.find(apt => apt.id === appointmentId);
+      
+      if (!appointment || appointment.patientName) {
+        return false; // Appointment not found or already booked
+      }
+
+      // Get user information
+      const storedUsers = localStorage.getItem(STORAGE_KEY);
+      if (!storedUsers) return false;
+      
+      const allUsers: User[] = JSON.parse(storedUsers);
+      const user = allUsers.find(u => u.id === userId);
+      
+      if (!user) return false;
+
+      // Update the doctor appointment with patient information
+      const updatedDoctorAppointments = allDoctorAppointments.map(apt => 
+        apt.id === appointmentId 
+          ? { 
+              ...apt, 
+              patientName: user.email.split('@')[0], // Use email prefix as name
+              patientCpf: patientCpf || user.cpf,
+              patientPhone: patientPhone || user.phone
+            }
+          : apt
+      );
+
+      localStorage.setItem(DOCTOR_APPOINTMENTS_KEY, JSON.stringify(updatedDoctorAppointments));
+      setDoctorAppointments(updatedDoctorAppointments);
+
+      // Also create a booking record in the old format for compatibility
+      const doctorInfo = localStorage.getItem(DOCTORS_KEY);
+      if (doctorInfo) {
+        const doctors: Doctor[] = JSON.parse(doctorInfo);
+        const doctor = doctors.find(d => d.id === appointment.doctorId);
+        
+        if (doctor) {
+          const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+          const dateParts = appointment.date.split('/');
+          const appointmentDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+          const dayOfWeek = dayNames[appointmentDate.getDay()];
+
+          const bookingData: Omit<BookedAppointment, 'id' | 'bookedAt'> = {
+            userId,
+            doctor: doctor.name,
+            specialty: appointment.specialty,
+            day: dayOfWeek,
+            time: `${appointment.startTime} - ${appointment.endTime}`,
+            date: appointment.date
+          };
+
+          bookAppointment(bookingData);
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error booking doctor appointment:', error);
       return false;
     }
   };
@@ -600,6 +727,9 @@ export const useLocalStorage = () => {
     createDoctorAppointment,
     getDoctorAppointments,
     updateAppointmentStatus,
-    deleteDoctorAppointment
+    deleteDoctorAppointment,
+    // New functions for integrating doctor appointments with patient dashboard
+    getAvailableDoctorAppointments,
+    bookDoctorAppointment
   };
 }; 

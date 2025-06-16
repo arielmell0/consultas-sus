@@ -8,6 +8,7 @@ interface Appointment {
   day: string;
   time: string;
   date: string;
+  appointmentId?: string; // For real appointments created by doctors
 }
 
 interface Doctor {
@@ -32,7 +33,7 @@ interface SuccessModalData {
 }
 
 export default function DashboardPage() {
-  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('ginecologia');
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
@@ -41,10 +42,21 @@ export default function DashboardPage() {
   const [bookingLoading, setBookingLoading] = useState<string | null>(null); // Track which appointment is being booked
   const [activeTab, setActiveTab] = useState<'dashboard' | 'consultas'>('dashboard');
   const [cancelingAppointment, setCancelingAppointment] = useState<string | null>(null); // Track which appointment is being canceled
+  const [combinedSpecialtiesData, setCombinedSpecialtiesData] = useState<SpecialtiesData>({});
   
-  const { bookAppointment, isAppointmentBooked, getCurrentUser, clearSession, getUserAppointments, cancelAppointment } = useLocalStorage();
+  const { 
+    bookAppointment, 
+    isAppointmentBooked, 
+    getCurrentUser, 
+    clearSession, 
+    getUserAppointments, 
+    cancelAppointment,
+    getAvailableDoctorAppointments,
+    bookDoctorAppointment
+  } = useLocalStorage();
 
-  const specialtiesData: SpecialtiesData = {
+  // Mock data for specialties - will be combined with real doctor appointments
+  const baseMockData: SpecialtiesData = {
     'ginecologia': {
       title: 'Ginecologia - Horários Disponíveis',
       doctors: [
@@ -150,7 +162,134 @@ export default function DashboardPage() {
           ]
         }
       ]
+    },
+    'neurologia': {
+      title: 'Neurologia - Horários Disponíveis',
+      doctors: [
+        {
+          name: 'Dr. André Cerebro - Neurologia',
+          appointments: [
+            { day: 'Terça-feira', time: '08:00 - 12:00', date: '18/06/2025' },
+            { day: 'Quinta-feira', time: '14:00 - 18:00', date: '20/06/2025' },
+            { day: 'Sábado', time: '09:00 - 13:00', date: '22/06/2025' }
+          ]
+        },
+        {
+          name: 'Dra. Camila Neurônio - Neurologia',
+          appointments: [
+            { day: 'Segunda-feira', time: '13:00 - 17:00', date: '17/06/2025' },
+            { day: 'Quarta-feira', time: '15:00 - 19:00', date: '19/06/2025' },
+            { day: 'Sexta-feira', time: '08:00 - 12:00', date: '21/06/2025' }
+          ]
+        }
+      ]
+    },
+    'psiquiatria': {
+      title: 'Psiquiatria - Horários Disponíveis',
+      doctors: [
+        {
+          name: 'Dra. Helena Mente - Psiquiatria',
+          appointments: [
+            { day: 'Segunda-feira', time: '08:00 - 12:00', date: '17/06/2025' },
+            { day: 'Terça-feira', time: '14:00 - 18:00', date: '18/06/2025' },
+            { day: 'Quinta-feira', time: '09:00 - 13:00', date: '20/06/2025' }
+          ]
+        },
+        {
+          name: 'Dr. Gabriel Psique - Psiquiatria',
+          appointments: [
+            { day: 'Quarta-feira', time: '13:00 - 17:00', date: '19/06/2025' },
+            { day: 'Sexta-feira', time: '14:00 - 18:00', date: '21/06/2025' },
+            { day: 'Sábado', time: '08:00 - 12:00', date: '22/06/2025' }
+          ]
+        }
+      ]
+    },
+    'oftalmologia': {
+      title: 'Oftalmologia - Horários Disponíveis',
+      doctors: [
+        {
+          name: 'Dr. Ricardo Visão - Oftalmologia',
+          appointments: [
+            { day: 'Segunda-feira', time: '09:00 - 13:00', date: '17/06/2025' },
+            { day: 'Quarta-feira', time: '14:00 - 18:00', date: '19/06/2025' },
+            { day: 'Sexta-feira', time: '08:00 - 12:00', date: '21/06/2025' }
+          ]
+        },
+        {
+          name: 'Dra. Julia Olho - Oftalmologia',
+          appointments: [
+            { day: 'Terça-feira', time: '13:00 - 17:00', date: '18/06/2025' },
+            { day: 'Quinta-feira', time: '08:00 - 12:00', date: '20/06/2025' },
+            { day: 'Sábado', time: '10:00 - 14:00', date: '22/06/2025' }
+          ]
+        }
+      ]
+    },
+    'otorrinolaringologia': {
+      title: 'Otorrinolaringologia - Horários Disponíveis',
+      doctors: [
+        {
+          name: 'Dr. Fernando Ouvido - Otorrinolaringologia',
+          appointments: [
+            { day: 'Segunda-feira', time: '14:00 - 18:00', date: '17/06/2025' },
+            { day: 'Terça-feira', time: '08:00 - 12:00', date: '18/06/2025' },
+            { day: 'Quinta-feira', time: '13:00 - 17:00', date: '20/06/2025' }
+          ]
+        },
+        {
+          name: 'Dra. Beatriz Nariz - Otorrinolaringologia',
+          appointments: [
+            { day: 'Quarta-feira', time: '09:00 - 13:00', date: '19/06/2025' },
+            { day: 'Sexta-feira', time: '15:00 - 19:00', date: '21/06/2025' },
+            { day: 'Sábado', time: '08:00 - 12:00', date: '22/06/2025' }
+          ]
+        }
+      ]
     }
+  };
+
+  // Function to combine mock data with real doctor appointments
+  const combineAppointments = () => {
+    const realAppointments = getAvailableDoctorAppointments();
+    const combined = { ...baseMockData };
+
+    // Group real appointments by specialty
+    realAppointments.forEach((appointment) => {
+      if (!appointment) return; // Skip null values
+      
+      const specialtyKey = appointment.specialty.toLowerCase().replace(/\s+/g, '-');
+      
+      if (!combined[specialtyKey]) {
+        combined[specialtyKey] = {
+          title: `${appointment.specialty} - Horários Disponíveis`,
+          doctors: []
+        };
+      }
+
+      // Find existing doctor or create new one
+      let doctorEntry = combined[specialtyKey].doctors.find(
+        doc => doc.name === appointment.doctorName
+      );
+
+      if (!doctorEntry) {
+        doctorEntry = {
+          name: appointment.doctorName,
+          appointments: []
+        };
+        combined[specialtyKey].doctors.push(doctorEntry);
+      }
+
+      // Add the appointment
+      doctorEntry.appointments.push({
+        day: appointment.day,
+        time: appointment.time,
+        date: appointment.date,
+        appointmentId: appointment.appointmentId
+      });
+    });
+
+    setCombinedSpecialtiesData(combined);
   };
 
   useEffect(() => {
@@ -159,6 +298,7 @@ export default function DashboardPage() {
     if (user) {
       setCurrentUser(user);
       setUserEmail(user.email);
+      combineAppointments(); // Load and combine appointments
       setIsLoading(false);
     } else {
       // No valid session, redirect to login
@@ -182,43 +322,52 @@ export default function DashboardPage() {
     setSelectedSpecialty(specialty);
   };
 
-  const handleBookAppointment = async (doctor: string, day: string, time: string, date: string) => {
+  const handleBookAppointment = async (doctor: string, day: string, time: string, date: string, appointmentId?: string) => {
     if (!currentUser) {
       alert('Você precisa estar logado para agendar uma consulta.');
       return;
     }
 
-    // Check if already booked
-    if (isAppointmentBooked(doctor, day, time, date)) {
-      alert('Este horário já está agendado.');
-      return;
-    }
-
     // Create unique identifier for this appointment slot
-    const appointmentId = `${doctor}-${day}-${time}-${date}`;
+    const bookingId = appointmentId || `${doctor}-${day}-${time}-${date}`;
     
     // Set loading for this specific appointment
-    setBookingLoading(appointmentId);
+    setBookingLoading(bookingId);
 
     try {
       // Simulate processing time for better UX
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const specialtyName = getSpecialtyName(selectedSpecialty);
-      
-      // Book the appointment
-      const success = bookAppointment({
-        userId: currentUser.id,
-        doctor,
-        specialty: specialtyName,
-        day,
-        time,
-        date
-      });
+      let success = false;
+
+      if (appointmentId) {
+        // This is a real appointment created by a doctor
+        success = bookDoctorAppointment(appointmentId, currentUser.id);
+      } else {
+        // This is a mock appointment - check if already booked
+        if (isAppointmentBooked(doctor, day, time, date)) {
+          alert('Este horário já está agendado.');
+          return;
+        }
+
+        const specialtyName = getSpecialtyName(selectedSpecialty);
+        
+        // Book the mock appointment
+        success = bookAppointment({
+          userId: currentUser.id,
+          doctor,
+          specialty: specialtyName,
+          day,
+          time,
+          date
+        });
+      }
 
       if (success) {
         setSuccessModalData({ doctor, day, time, date });
         setShowSuccessModal(true);
+        // Refresh the appointments data to reflect the booking
+        combineAppointments();
       } else {
         alert('Erro ao agendar consulta. Tente novamente.');
       }
@@ -276,7 +425,11 @@ export default function DashboardPage() {
       'clinica-geral': '🩺',
       'cardiologia': '❤️',
       'dermatologia': '🧴',
-      'ortopedia': '🦴'
+      'ortopedia': '🦴',
+      'neurologia': '🧠',
+      'psiquiatria': '🤗',
+      'oftalmologia': '👁️',
+      'otorrinolaringologia': '👂'
     };
     return icons[specialty] || '🏥';
   };
@@ -288,12 +441,25 @@ export default function DashboardPage() {
       'clinica-geral': 'Clínica Geral',
       'cardiologia': 'Cardiologia',
       'dermatologia': 'Dermatologia',
-      'ortopedia': 'Ortopedia'
+      'ortopedia': 'Ortopedia',
+      'neurologia': 'Neurologia',
+      'psiquiatria': 'Psiquiatria',
+      'oftalmologia': 'Oftalmologia',
+      'otorrinolaringologia': 'Otorrinolaringologia'
     };
     return names[specialty] || specialty;
   };
 
-  const isSlotBooked = (doctor: string, day: string, time: string, date: string): boolean => {
+  const isSlotBooked = (doctor: string, day: string, time: string, date: string, appointmentId?: string): boolean => {
+    // For real appointments created by doctors, we need to check if they have a patient assigned
+    if (appointmentId) {
+      // This is a real appointment - check if it's still available
+      const realAppointments = getAvailableDoctorAppointments();
+      const appointment = realAppointments.find(apt => apt && apt.appointmentId === appointmentId);
+      return !appointment; // If not found in available appointments, it means it's booked
+    }
+    
+    // For mock appointments, use the original check
     return isAppointmentBooked(doctor, day, time, date);
   };
 
@@ -626,7 +792,7 @@ export default function DashboardPage() {
 
               {/* Specialties Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
-                {Object.keys(specialtiesData).map((specialty) => (
+                {Object.keys(combinedSpecialtiesData).map((specialty) => (
                   <div
                     key={specialty}
                     className={`bg-gray-50 border-2 rounded-xl p-8 text-center cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg ${
@@ -651,10 +817,10 @@ export default function DashboardPage() {
                 {selectedSpecialty ? (
                   <div>
                     <h2 className="text-2xl font-semibold text-gray-800 mb-6 pb-3 border-b-2 border-gray-200">
-                      {specialtiesData[selectedSpecialty].title}
+                      {combinedSpecialtiesData[selectedSpecialty].title}
                     </h2>
                     <div className="space-y-5">
-                      {specialtiesData[selectedSpecialty].doctors.map((doctor, doctorIndex) => (
+                      {combinedSpecialtiesData[selectedSpecialty].doctors.map((doctor, doctorIndex) => (
                         <div
                           key={doctorIndex}
                           className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6 transition-all duration-300 hover:border-blue-600 hover:bg-white"
@@ -664,8 +830,8 @@ export default function DashboardPage() {
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {doctor.appointments.map((appointment, appointmentIndex) => {
-                              const isBooked = isSlotBooked(doctor.name, appointment.day, appointment.time, appointment.date);
-                              const appointmentId = `${doctor.name}-${appointment.day}-${appointment.time}-${appointment.date}`;
+                              const isBooked = isSlotBooked(doctor.name, appointment.day, appointment.time, appointment.date, appointment.appointmentId);
+                              const appointmentId = appointment.appointmentId || `${doctor.name}-${appointment.day}-${appointment.time}-${appointment.date}`;
                               const isCurrentlyBooking = bookingLoading === appointmentId;
                               
                               return (
@@ -716,7 +882,8 @@ export default function DashboardPage() {
                                           doctor.name,
                                           appointment.day,
                                           appointment.time,
-                                          appointment.date
+                                          appointment.date,
+                                          appointment.appointmentId
                                         )}
                                         disabled={isCurrentlyBooking}
                                         className={`px-4 py-2 rounded-md text-xs font-semibold uppercase tracking-wide transition-all duration-300 ${

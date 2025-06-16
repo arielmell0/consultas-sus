@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import moment from 'moment';
+import { DayPicker } from 'react-day-picker';
+import 'react-day-picker/style.css';
 import { useLocalStorage, Doctor, DoctorAppointment } from '@/hooks/useLocalStorage';
 
 export default function DashboardMedicoPage() {
@@ -11,17 +14,17 @@ export default function DashboardMedicoPage() {
   const [appointments, setAppointments] = useState<DoctorAppointment[]>([]);
   
   // Form states for creating appointments
-  const [showCreateForm, setShowCreateForm] = useState<boolean>(false);
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [appointmentForm, setAppointmentForm] = useState({
     patientName: '',
-    patientCpf: '',
-    patientPhone: '',
-    day: '',
-    time: '',
+    startTime: '',
+    endTime: '',
     date: '',
     notes: ''
   });
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+  const datePickerRef = useRef<HTMLDivElement>(null);
 
   // Loading states
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
@@ -35,6 +38,25 @@ export default function DashboardMedicoPage() {
     updateAppointmentStatus, 
     deleteDoctorAppointment 
   } = useLocalStorage();
+
+  // Generate time options for select dropdowns
+  const generateTimeOptions = () => {
+    const options = [];
+    for (let hour = 7; hour <= 18; hour++) {
+      for (let minute = 0; minute < 60; minute += 30) {
+        const time = moment({ hour, minute }).format('HH:mm');
+        options.push(time);
+      }
+    }
+    return options;
+  };
+
+  const timeOptions = generateTimeOptions();
+
+  const loadAppointments = (doctorId: string) => {
+    const doctorAppointments = getDoctorAppointments(doctorId);
+    setAppointments(doctorAppointments);
+  };
 
   useEffect(() => {
     try {
@@ -50,12 +72,14 @@ export default function DashboardMedicoPage() {
       console.error('Error loading doctor data:', error);
       window.location.href = '/login-medico';
     }
-  }, []); // Empty dependency array to prevent infinite loop
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadAppointments = (doctorId: string) => {
-    const doctorAppointments = getDoctorAppointments(doctorId);
-    setAppointments(doctorAppointments);
-  };
+  // Reload appointments when switching to consultation tab
+  useEffect(() => {
+    if (activeTab === 'consultas' && currentDoctor) {
+      loadAppointments(currentDoctor.id);
+    }
+  }, [activeTab, currentDoctor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = () => {
     if (confirm('Deseja realmente sair do sistema?')) {
@@ -90,17 +114,6 @@ export default function DashboardMedicoPage() {
     }
   };
 
-  const formatDate = (value: string): string => {
-    const numbers = value.replace(/\D/g, '');
-    if (numbers.length <= 2) {
-      return numbers;
-    } else if (numbers.length <= 4) {
-      return `${numbers.slice(0, 2)}/${numbers.slice(2)}`;
-    } else {
-      return `${numbers.slice(0, 2)}/${numbers.slice(2, 4)}/${numbers.slice(4, 8)}`;
-    }
-  };
-
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     
@@ -108,10 +121,43 @@ export default function DashboardMedicoPage() {
       setAppointmentForm(prev => ({ ...prev, [name]: formatCpf(value) }));
     } else if (name === 'patientPhone') {
       setAppointmentForm(prev => ({ ...prev, [name]: formatPhone(value) }));
-    } else if (name === 'date') {
-      setAppointmentForm(prev => ({ ...prev, [name]: formatDate(value) }));
     } else {
       setAppointmentForm(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleDateSelect = (date: Date | undefined) => {
+    setSelectedDate(date);
+    if (date) {
+      const formattedDate = moment(date).format('DD/MM/YYYY');
+      setAppointmentForm(prev => ({ ...prev, date: formattedDate }));
+      setShowDatePicker(false); // Close the date picker after selection
+    } else {
+      setAppointmentForm(prev => ({ ...prev, date: '' }));
+    }
+  };
+
+  const handleDateInputClick = () => {
+    setShowDatePicker(!showDatePicker);
+  };
+
+  const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setAppointmentForm(prev => ({ ...prev, date: value }));
+    
+    // Try to parse the date if it's in DD/MM/YYYY format
+    if (value.length === 10) {
+      const dateParts = value.split('/');
+      if (dateParts.length === 3) {
+        const day = parseInt(dateParts[0], 10);
+        const month = parseInt(dateParts[1], 10) - 1; // Month is 0-indexed
+        const year = parseInt(dateParts[2], 10);
+        const parsedDate = new Date(year, month, day);
+        
+        if (!isNaN(parsedDate.getTime())) {
+          setSelectedDate(parsedDate);
+        }
+      }
     }
   };
 
@@ -121,9 +167,17 @@ export default function DashboardMedicoPage() {
     if (!currentDoctor) return;
 
     // Basic validation
-    if (!appointmentForm.patientName || !appointmentForm.patientCpf || !appointmentForm.day || 
-        !appointmentForm.time || !appointmentForm.date) {
+    if (!appointmentForm.startTime || !appointmentForm.endTime || !appointmentForm.date) {
       alert('Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    // Validate that end time is after start time
+    const startMoment = moment(appointmentForm.startTime, 'HH:mm');
+    const endMoment = moment(appointmentForm.endTime, 'HH:mm');
+    
+    if (endMoment.isSameOrBefore(startMoment)) {
+      alert('O horário de término deve ser posterior ao horário de início.');
       return;
     }
 
@@ -135,32 +189,30 @@ export default function DashboardMedicoPage() {
       const success = createDoctorAppointment({
         doctorId: currentDoctor.id,
         patientName: appointmentForm.patientName,
-        patientCpf: appointmentForm.patientCpf,
-        patientPhone: appointmentForm.patientPhone,
         specialty: currentDoctor.specialty,
-        day: appointmentForm.day,
-        time: appointmentForm.time,
+        startTime: appointmentForm.startTime,
+        endTime: appointmentForm.endTime,
         date: appointmentForm.date,
         status: 'scheduled',
         notes: appointmentForm.notes
       });
 
       if (success) {
-        alert('Consulta criada com sucesso!');
+        const message = appointmentForm.patientName ? 'Consulta criada com sucesso!' : 'Horário disponível criado com sucesso!';
+        alert(message);
         loadAppointments(currentDoctor.id);
         setAppointmentForm({
           patientName: '',
-          patientCpf: '',
-          patientPhone: '',
-          day: '',
-          time: '',
+          startTime: '',
+          endTime: '',
           date: '',
           notes: ''
         });
-        setShowCreateForm(false);
+        setSelectedDate(undefined);
+        setShowDatePicker(false);
         setActiveTab('consultas');
       } else {
-        alert('Erro ao criar consulta. Tente novamente.');
+        alert('Erro ao criar. Tente novamente.');
       }
     } catch (error) {
       console.error('Error creating appointment:', error);
@@ -192,8 +244,8 @@ export default function DashboardMedicoPage() {
     }
   };
 
-  const handleDeleteAppointment = async (appointmentId: string, patientName: string) => {
-    if (!confirm(`Tem certeza que deseja excluir a consulta de ${patientName}?`)) {
+  const handleDeleteAppointment = async (appointmentId: string, patientName?: string) => {
+    if (!confirm(`Tem certeza que deseja excluir ${patientName ? `a consulta de ${patientName}` : 'este horário disponível'}?`)) {
       return;
     }
 
@@ -206,9 +258,9 @@ export default function DashboardMedicoPage() {
 
       if (success && currentDoctor) {
         loadAppointments(currentDoctor.id);
-        alert('Consulta excluída com sucesso!');
+        alert(`${patientName ? 'Consulta excluída' : 'Horário disponível excluído'} com sucesso!`);
       } else {
-        alert('Erro ao excluir consulta. Tente novamente.');
+        alert('Erro ao excluir. Tente novamente.');
       }
     } catch (error) {
       console.error('Error deleting appointment:', error);
@@ -242,6 +294,23 @@ export default function DashboardMedicoPage() {
     const cancelled = appointments.filter(apt => apt.status === 'cancelled');
     return { scheduled, completed, cancelled };
   };
+
+  // Close date picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+        setShowDatePicker(false);
+      }
+    };
+
+    if (showDatePicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDatePicker]);
 
   if (isLoading) {
     return (
@@ -385,8 +454,8 @@ export default function DashboardMedicoPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
                   </div>
-                  <h3 className="text-xl font-semibold mb-2">Criar Nova Consulta</h3>
-                  <p className="text-blue-100">Agende uma nova consulta para um paciente</p>
+                  <h3 className="text-xl font-semibold mb-2">Criar Horário Disponível</h3>
+                  <p className="text-blue-100">Crie um horário para que pacientes possam agendar</p>
                 </button>
 
                 <button
@@ -410,10 +479,10 @@ export default function DashboardMedicoPage() {
             <div>
               <div className="text-center mb-8">
                 <h1 className="text-3xl font-semibold text-gray-800 mb-2">
-                  Criar Nova Consulta
+                  Criar Horário Disponível
                 </h1>
                 <p className="text-gray-600">
-                  Preencha os dados para agendar uma nova consulta
+                  Crie um horário disponível para que os pacientes possam agendar
                 </p>
               </div>
 
@@ -421,7 +490,7 @@ export default function DashboardMedicoPage() {
                 {/* Patient Name */}
                 <div>
                   <label htmlFor="patientName" className="block text-sm font-medium text-gray-700 mb-2">
-                    Nome do Paciente *
+                    Nome do Paciente (Opcional)
                   </label>
                   <input
                     type="text"
@@ -430,104 +499,120 @@ export default function DashboardMedicoPage() {
                     value={appointmentForm.patientName}
                     onChange={handleFormChange}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Nome completo do paciente"
-                    required
+                    placeholder="Deixe vazio para criar horário disponível"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Se vazio, qualquer paciente poderá agendar este horário
+                  </p>
                 </div>
 
-                {/* Patient CPF and Phone */}
+                {/* Start and End Time */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label htmlFor="patientCpf" className="block text-sm font-medium text-gray-700 mb-2">
-                      CPF do Paciente *
-                    </label>
-                    <input
-                      type="text"
-                      id="patientCpf"
-                      name="patientCpf"
-                      value={appointmentForm.patientCpf}
-                      onChange={handleFormChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="000.000.000-00"
-                      maxLength={14}
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="patientPhone" className="block text-sm font-medium text-gray-700 mb-2">
-                      Telefone do Paciente
-                    </label>
-                    <input
-                      type="tel"
-                      id="patientPhone"
-                      name="patientPhone"
-                      value={appointmentForm.patientPhone}
-                      onChange={handleFormChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="(11) 99999-9999"
-                      maxLength={15}
-                    />
-                  </div>
-                </div>
-
-                {/* Day and Time */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="day" className="block text-sm font-medium text-gray-700 mb-2">
-                      Dia da Semana *
+                    <label htmlFor="startTime" className="block text-sm font-medium text-gray-700 mb-2">
+                      Horário de Início *
                     </label>
                     <select
-                      id="day"
-                      name="day"
-                      value={appointmentForm.day}
+                      id="startTime"
+                      name="startTime"
+                      value={appointmentForm.startTime}
                       onChange={handleFormChange}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     >
-                      <option value="">Selecione o dia</option>
-                      <option value="Segunda-feira">Segunda-feira</option>
-                      <option value="Terça-feira">Terça-feira</option>
-                      <option value="Quarta-feira">Quarta-feira</option>
-                      <option value="Quinta-feira">Quinta-feira</option>
-                      <option value="Sexta-feira">Sexta-feira</option>
-                      <option value="Sábado">Sábado</option>
+                      <option value="">Selecione o horário de início</option>
+                      {timeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
                   <div>
-                    <label htmlFor="time" className="block text-sm font-medium text-gray-700 mb-2">
-                      Horário *
+                    <label htmlFor="endTime" className="block text-sm font-medium text-gray-700 mb-2">
+                      Horário de Término *
                     </label>
-                    <input
-                      type="text"
-                      id="time"
-                      name="time"
-                      value={appointmentForm.time}
+                    <select
+                      id="endTime"
+                      name="endTime"
+                      value={appointmentForm.endTime}
                       onChange={handleFormChange}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="08:00 - 12:00"
                       required
-                    />
+                    >
+                      <option value="">Selecione o horário de término</option>
+                      {timeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
                 {/* Date */}
-                <div>
+                <div className="relative" ref={datePickerRef}>
                   <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-2">
                     Data *
                   </label>
-                  <input
-                    type="text"
-                    id="date"
-                    name="date"
-                    value={appointmentForm.date}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="DD/MM/AAAA"
-                    maxLength={10}
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      id="date"
+                      name="date"
+                      value={appointmentForm.date}
+                      onChange={handleDateInputChange}
+                      onClick={handleDateInputClick}
+                      className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                      placeholder="DD/MM/AAAA"
+                      maxLength={10}
+                      required
+                      readOnly
+                    />
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                  </div>
+                  
+                  {showDatePicker && (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-2 bg-white border border-gray-300 rounded-lg shadow-lg p-4">
+                      <div className="flex justify-center">
+                        <DayPicker
+                          mode="single"
+                          selected={selectedDate}
+                          onSelect={handleDateSelect}
+                          disabled={{ before: new Date() }}
+                          styles={{
+                            caption: { color: '#374151' },
+                            day: { 
+                              color: '#374151',
+                              borderRadius: '8px'
+                            },
+                            day_selected: { 
+                              backgroundColor: '#3B82F6',
+                              color: 'white'
+                            },
+                            day_today: {
+                              fontWeight: 'bold',
+                              color: '#DC2626'
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-end mt-3 pt-3 border-t border-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => setShowDatePicker(false)}
+                          className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                        >
+                          Fechar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Notes */}
@@ -566,7 +651,7 @@ export default function DashboardMedicoPage() {
                         Criando...
                       </div>
                     ) : (
-                      'Criar Consulta'
+                      'Criar Horário Disponível'
                     )}
                   </button>
 
@@ -600,16 +685,16 @@ export default function DashboardMedicoPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                   <h3 className="text-xl font-semibold text-gray-600 mb-2">
-                    Nenhuma consulta encontrada
+                    Nenhum horário encontrado
                   </h3>
                   <p className="text-gray-500 mb-6">
-                    Você ainda não criou nenhuma consulta.
+                    Você ainda não criou nenhum horário disponível.
                   </p>
                   <button
                     onClick={() => setActiveTab('criar')}
                     className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300"
                   >
-                    Criar Primeira Consulta
+                    Criar Primeiro Horário
                   </button>
                 </div>
               ) : (
@@ -623,20 +708,27 @@ export default function DashboardMedicoPage() {
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-3">
                             <h3 className="text-lg font-semibold text-gray-800">
-                              {appointment.patientName}
+                              {appointment.patientName || 'Horário Disponível'}
                             </h3>
                             <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide ${getStatusColor(appointment.status)}`}>
                               {getStatusText(appointment.status)}
                             </span>
+                            {!appointment.patientName && (
+                              <span className="px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-orange-100 text-orange-700">
+                                Aguardando Paciente
+                              </span>
+                            )}
                           </div>
                           
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-gray-600">
-                            <div className="flex items-center">
-                              <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                              </svg>
-                              {appointment.patientCpf}
-                            </div>
+                            {appointment.patientCpf && (
+                              <div className="flex items-center">
+                                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                                </svg>
+                                {appointment.patientCpf}
+                              </div>
+                            )}
                             {appointment.patientPhone && (
                               <div className="flex items-center">
                                 <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -649,13 +741,13 @@ export default function DashboardMedicoPage() {
                               <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
                               </svg>
-                              {appointment.day}, {appointment.date}
+                              {appointment.date}
                             </div>
                             <div className="flex items-center">
                               <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
                               </svg>
-                              {appointment.time}
+                              {appointment.startTime} - {appointment.endTime}
                             </div>
                           </div>
 
