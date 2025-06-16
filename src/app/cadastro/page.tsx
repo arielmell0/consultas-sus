@@ -210,7 +210,7 @@ export default function CadastroPage() {
               type="email"
               id="email"
               placeholder="Insira seu email"
-              className={`w-full px-4 py-4 border-2 rounded-lg text-base transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
+              className={`w-full px-4 py-4 border-2 rounded-lg text-base text-gray-900 transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
                 errors.email 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-100' 
                   : 'border-gray-200 focus:border-blue-600 focus:ring-blue-100'
@@ -232,7 +232,7 @@ export default function CadastroPage() {
               type="password"
               id="password"
               placeholder="Insira sua senha"
-              className={`w-full px-4 py-4 border-2 rounded-lg text-base transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
+              className={`w-full px-4 py-4 border-2 rounded-lg text-base text-gray-900 transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
                 errors.password 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-100' 
                   : 'border-gray-200 focus:border-blue-600 focus:ring-blue-100'
@@ -255,7 +255,7 @@ export default function CadastroPage() {
               id="cpf"
               placeholder="Insira seu CPF"
               maxLength={14}
-              className={`w-full px-4 py-4 border-2 rounded-lg text-base transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
+              className={`w-full px-4 py-4 border-2 rounded-lg text-base text-gray-900 transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
                 errors.cpf 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-100' 
                   : 'border-gray-200 focus:border-blue-600 focus:ring-blue-100'
@@ -277,7 +277,7 @@ export default function CadastroPage() {
               type="tel"
               id="phone"
               placeholder="Insira seu número de telefone"
-              className={`w-full px-4 py-4 border-2 rounded-lg text-base transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
+              className={`w-full px-4 py-4 border-2 rounded-lg text-base text-gray-900 transition-all duration-300 bg-gray-50 focus:bg-white focus:outline-none ${
                 errors.phone 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-100' 
                   : 'border-gray-200 focus:border-blue-600 focus:ring-blue-100'
