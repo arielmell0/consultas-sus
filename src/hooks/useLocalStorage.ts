@@ -315,6 +315,19 @@ export const useLocalStorage = () => {
     return appointments.filter(appointment => appointment.userId === userId);
   };
 
+  // Cancel appointment
+  const cancelAppointment = (appointmentId: string): boolean => {
+    try {
+      const updatedAppointments = appointments.filter(appointment => appointment.id !== appointmentId);
+      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updatedAppointments));
+      setAppointments(updatedAppointments);
+      return true;
+    } catch (error) {
+      console.error('Error canceling appointment:', error);
+      return false;
+    }
+  };
+
   return {
     users,
     appointments,
@@ -332,6 +345,7 @@ export const useLocalStorage = () => {
     isSessionExpired,
     bookAppointment,
     isAppointmentBooked,
-    getUserAppointments
+    getUserAppointments,
+    cancelAppointment
   };
 }; 
