@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useLocalStorage, User } from '@/hooks/useLocalStorage';
 
 interface Appointment {
   day: string;
@@ -23,9 +24,22 @@ interface SpecialtiesData {
   [key: string]: SpecialtyData;
 }
 
+interface SuccessModalData {
+  doctor: string;
+  day: string;
+  time: string;
+  date: string;
+}
+
 export default function DashboardPage() {
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>('ginecologia');
   const [userEmail, setUserEmail] = useState<string>('');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
+  const [successModalData, setSuccessModalData] = useState<SuccessModalData | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  
+  const { bookAppointment, isAppointmentBooked, getCurrentUser, clearSession } = useLocalStorage();
 
   const specialtiesData: SpecialtiesData = {
     'ginecologia': {
@@ -137,32 +151,74 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    // Get user info from localStorage if available
-    const rememberedUser = localStorage.getItem('sus_remember_user');
-    if (rememberedUser) {
-      const users = JSON.parse(localStorage.getItem('sus_users') || '[]');
-      const user = users.find((u: any) => u.id === rememberedUser);
-      if (user) {
-        setUserEmail(user.email);
-      }
+    // Get current user from session
+    const user = getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+      setUserEmail(user.email);
+      setIsLoading(false);
+    } else {
+      // No valid session, redirect to login
+      window.location.href = '/login';
     }
-  }, []);
+  }, []); // Empty dependency array to run only on mount
+
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSpecialtySelect = (specialty: string) => {
     setSelectedSpecialty(specialty);
   };
 
   const handleBookAppointment = (doctor: string, day: string, time: string, date: string) => {
-    const confirmMessage = `Confirmar agendamento?\n\nMédico: ${doctor}\nData: ${day}, ${date}\nHorário: ${time}`;
-    
-    if (confirm(confirmMessage)) {
-      alert('Consulta agendada com sucesso!\n\nVocê receberá uma confirmação por email e SMS.');
+    if (!currentUser) {
+      alert('Você precisa estar logado para agendar uma consulta.');
+      return;
     }
+
+    // Check if already booked
+    if (isAppointmentBooked(doctor, day, time, date)) {
+      alert('Este horário já está agendado.');
+      return;
+    }
+
+    const specialtyName = getSpecialtyName(selectedSpecialty);
+    
+    // Book the appointment
+    const success = bookAppointment({
+      userId: currentUser.id,
+      doctor,
+      specialty: specialtyName,
+      day,
+      time,
+      date
+    });
+
+    if (success) {
+      setSuccessModalData({ doctor, day, time, date });
+      setShowSuccessModal(true);
+    } else {
+      alert('Erro ao agendar consulta. Tente novamente.');
+    }
+  };
+
+  const handleCloseModal = () => {
+    setShowSuccessModal(false);
+    setSuccessModalData(null);
   };
 
   const handleLogout = () => {
     if (confirm('Deseja realmente sair do sistema?')) {
-      localStorage.removeItem('sus_remember_user');
+      clearSession();
       window.location.href = '/';
     }
   };
@@ -191,8 +247,60 @@ export default function DashboardPage() {
     return names[specialty] || specialty;
   };
 
+  const isSlotBooked = (doctor: string, day: string, time: string, date: string): boolean => {
+    return isAppointmentBooked(doctor, day, time, date);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-100 pb-20">
+      {/* Success Modal */}
+      {showSuccessModal && successModalData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-8 transform transition-all duration-300 scale-100">
+            <div className="text-center">
+              {/* Success Icon */}
+              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              
+              <h3 className="text-2xl font-semibold text-gray-800 mb-4">
+                Consulta Agendada!
+              </h3>
+              
+              <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600">Médico:</span>
+                    <span className="text-gray-800">{successModalData.doctor}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600">Data:</span>
+                    <span className="text-gray-800">{successModalData.day}, {successModalData.date}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600">Horário:</span>
+                    <span className="text-gray-800">{successModalData.time}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <p className="text-gray-600 mb-6">
+                Sua consulta foi agendada com sucesso! Você receberá uma confirmação por email e SMS.
+              </p>
+              
+              <button
+                onClick={handleCloseModal}
+                className="w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
+              >
+                Perfeito!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -314,42 +422,60 @@ export default function DashboardPage() {
                         {doctor.name}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {doctor.appointments.map((appointment, appointmentIndex) => (
-                          <div
-                            key={appointmentIndex}
-                            className="bg-white border border-gray-200 rounded-lg p-4 flex justify-between items-center transition-all duration-300 hover:border-blue-600 hover:shadow-md"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs">
-                                🕒
-                              </div>
-                              <div>
-                                <div className="font-semibold text-gray-800 text-sm">
-                                  {appointment.day}
+                        {doctor.appointments.map((appointment, appointmentIndex) => {
+                          const isBooked = isSlotBooked(doctor.name, appointment.day, appointment.time, appointment.date);
+                          
+                          return (
+                            <div
+                              key={appointmentIndex}
+                              className={`border rounded-lg p-4 flex justify-between items-center transition-all duration-300 ${
+                                isBooked 
+                                  ? 'bg-green-50 border-green-200' 
+                                  : 'bg-white border-gray-200 hover:border-blue-600 hover:shadow-md'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs ${
+                                  isBooked ? 'bg-green-600' : 'bg-blue-600'
+                                }`}>
+                                  {isBooked ? '✓' : '🕒'}
                                 </div>
-                                <div className="text-gray-600 text-xs">
-                                  {appointment.time}
+                                <div>
+                                  <div className="font-semibold text-gray-800 text-sm">
+                                    {appointment.day}
+                                  </div>
+                                  <div className="text-gray-600 text-xs">
+                                    {appointment.time}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="font-semibold text-blue-600 text-sm mb-2">
-                                {appointment.date}
-                              </div>
-                              <button
-                                onClick={() => handleBookAppointment(
-                                  doctor.name,
-                                  appointment.day,
-                                  appointment.time,
-                                  appointment.date
+                              <div className="text-right">
+                                <div className={`font-semibold text-sm mb-2 ${
+                                  isBooked ? 'text-green-600' : 'text-blue-600'
+                                }`}>
+                                  {appointment.date}
+                                </div>
+                                {isBooked ? (
+                                  <span className="bg-green-100 text-green-800 px-4 py-2 rounded-md text-xs font-semibold uppercase tracking-wide">
+                                    Agendado
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleBookAppointment(
+                                      doctor.name,
+                                      appointment.day,
+                                      appointment.time,
+                                      appointment.date
+                                    )}
+                                    className="bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white px-4 py-2 rounded-md text-xs font-semibold uppercase tracking-wide transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
+                                  >
+                                    Agendar
+                                  </button>
                                 )}
-                                className="bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white px-4 py-2 rounded-md text-xs font-semibold uppercase tracking-wide transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-                              >
-                                Agendar
-                              </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ))}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -19,8 +19,31 @@ export default function LoginPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<LoginFormData>>({});
+  const [showExpiredMessage, setShowExpiredMessage] = useState(false);
   const router = useRouter();
-  const { authenticateUser } = useLocalStorage();
+  const { authenticateUser, getSavedCredentials, isSessionExpired } = useLocalStorage();
+
+  // Check for saved credentials and session status on mount
+  useEffect(() => {
+    const savedCredentials = getSavedCredentials();
+    const sessionExpired = isSessionExpired();
+    
+    if (savedCredentials) {
+      // Auto-fill credentials
+      setFormData(prev => ({
+        ...prev,
+        email: savedCredentials.emailOrCpf,
+        password: savedCredentials.password,
+        remember: true // Set remember me as true since these are saved credentials
+      }));
+      
+      // Show expired message if session was expired
+      if (sessionExpired) {
+        setShowExpiredMessage(true);
+        setTimeout(() => setShowExpiredMessage(false), 5000); // Hide after 5 seconds
+      }
+    }
+  }, []); // Empty dependency array to run only on mount
 
   // Format CPF input
   const formatCPF = (value: string): string => {
@@ -85,6 +108,11 @@ export default function LoginPage() {
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: undefined }));
     }
+    
+    // Hide expired message when user starts typing
+    if (showExpiredMessage && field === 'email') {
+      setShowExpiredMessage(false);
+    }
   };
 
   // Validate form
@@ -126,15 +154,10 @@ export default function LoginPage() {
       // Simulate API call delay for better UX
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Try to authenticate user
-      const user = authenticateUser(formData.email, formData.password);
+      // Try to authenticate user with remember me preference
+      const user = authenticateUser(formData.email, formData.password, formData.remember);
       
       if (user) {
-        // Save remember me preference if needed
-        if (formData.remember) {
-          localStorage.setItem('sus_remember_user', user.id);
-        }
-        
         alert(`Login realizado com sucesso!\n\nBem-vindo(a), ${user.email}!`);
         router.push('/dashboard'); // Redirect to dashboard
       } else {
@@ -158,6 +181,23 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-10">
+        {/* Expired Session Message */}
+        {showExpiredMessage && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 text-amber-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.464 0L4.35 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <div>
+                <h4 className="text-amber-800 font-medium text-sm">Sessão Expirada</h4>
+                <p className="text-amber-700 text-xs mt-1">
+                  Sua sessão expirou. Suas credenciais foram preenchidas automaticamente.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="text-center mb-10">
           <div className="mb-5">

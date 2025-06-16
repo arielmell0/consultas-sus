@@ -9,20 +9,53 @@ export interface User {
   createdAt: string;
 }
 
+export interface BookedAppointment {
+  id: string;
+  userId: string;
+  doctor: string;
+  specialty: string;
+  day: string;
+  time: string;
+  date: string;
+  bookedAt: string;
+}
+
+export interface SessionData {
+  userId: string;
+  expiresAt: string;
+  remember: boolean;
+}
+
+export interface SavedCredentials {
+  emailOrCpf: string;
+  password: string;
+  lastUsed: string;
+}
+
 const STORAGE_KEY = 'sus_users';
+const APPOINTMENTS_KEY = 'sus_appointments';
+const SESSION_KEY = 'sus_session';
+const CREDENTIALS_KEY = 'sus_saved_credentials';
+const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 
 export const useLocalStorage = () => {
   const [users, setUsers] = useState<User[]>([]);
+  const [appointments, setAppointments] = useState<BookedAppointment[]>([]);
 
-  // Load users from localStorage on mount
+  // Load users and appointments from localStorage on mount
   useEffect(() => {
     try {
       const storedUsers = localStorage.getItem(STORAGE_KEY);
       if (storedUsers) {
         setUsers(JSON.parse(storedUsers));
       }
+
+      const storedAppointments = localStorage.getItem(APPOINTMENTS_KEY);
+      if (storedAppointments) {
+        setAppointments(JSON.parse(storedAppointments));
+      }
     } catch (error) {
-      console.error('Error loading users from localStorage:', error);
+      console.error('Error loading data from localStorage:', error);
     }
   }, []);
 
@@ -47,10 +80,21 @@ export const useLocalStorage = () => {
 
   // Check if user exists (by email or CPF)
   const userExists = (email: string, cpf: string): boolean => {
-    return users.some(user => 
-      user.email.toLowerCase() === email.toLowerCase() || 
-      user.cpf.replace(/\D/g, '') === cpf.replace(/\D/g, '')
-    );
+    // Read users directly from localStorage to avoid race condition
+    try {
+      const storedUsers = localStorage.getItem(STORAGE_KEY);
+      if (storedUsers) {
+        const usersFromStorage: User[] = JSON.parse(storedUsers);
+        return usersFromStorage.some(user => 
+          user.email.toLowerCase() === email.toLowerCase() || 
+          user.cpf.replace(/\D/g, '') === cpf.replace(/\D/g, '')
+        );
+      }
+      return false;
+    } catch (error) {
+      console.error('Error reading users from localStorage:', error);
+      return false;
+    }
   };
 
   // Clear all users from localStorage
@@ -65,11 +109,129 @@ export const useLocalStorage = () => {
     }
   };
 
+  // Create session (sessionStorage for regular, localStorage for remember me)
+  const createSession = (userId: string, remember: boolean): boolean => {
+    try {
+      const expiresAt = new Date(Date.now() + SEVEN_DAYS_IN_MS).toISOString();
+      const sessionData: SessionData = {
+        userId,
+        expiresAt,
+        remember
+      };
+
+      if (remember) {
+        // Save to localStorage with expiration for remember me
+        localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+      } else {
+        // Save to sessionStorage for regular login (expires when browser closes)
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error creating session:', error);
+      return false;
+    }
+  };
+
+  // Get current session
+  const getCurrentSession = (): SessionData | null => {
+    try {
+      // Check sessionStorage first (regular login)
+      let sessionStr = sessionStorage.getItem(SESSION_KEY);
+      if (sessionStr) {
+        const session: SessionData = JSON.parse(sessionStr);
+        return session; // sessionStorage doesn't expire until browser closes
+      }
+
+      // Check localStorage (remember me)
+      sessionStr = localStorage.getItem(SESSION_KEY);
+      if (sessionStr) {
+        const session: SessionData = JSON.parse(sessionStr);
+        
+        // Check if expired
+        if (new Date(session.expiresAt) > new Date()) {
+          return session;
+        } else {
+          // Session expired, remove it
+          localStorage.removeItem(SESSION_KEY);
+          return null;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error getting current session:', error);
+      return null;
+    }
+  };
+
+  // Clear session
+  const clearSession = (): void => {
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(SESSION_KEY);
+    } catch (error) {
+      console.error('Error clearing session:', error);
+    }
+  };
+
+  // Save credentials for auto-fill
+  const saveCredentials = (emailOrCpf: string, password: string): boolean => {
+    try {
+      const credentials: SavedCredentials = {
+        emailOrCpf,
+        password,
+        lastUsed: new Date().toISOString()
+      };
+      localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(credentials));
+      return true;
+    } catch (error) {
+      console.error('Error saving credentials:', error);
+      return false;
+    }
+  };
+
+  // Get saved credentials
+  const getSavedCredentials = (): SavedCredentials | null => {
+    try {
+      const credentialsStr = localStorage.getItem(CREDENTIALS_KEY);
+      if (credentialsStr) {
+        return JSON.parse(credentialsStr);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting saved credentials:', error);
+      return null;
+    }
+  };
+
+  // Clear saved credentials
+  const clearSavedCredentials = (): void => {
+    try {
+      localStorage.removeItem(CREDENTIALS_KEY);
+    } catch (error) {
+      console.error('Error clearing saved credentials:', error);
+    }
+  };
+
   // Get user by email/CPF and password (for login)
-  const authenticateUser = (emailOrCpf: string, password: string): User | null => {
+  const authenticateUser = (emailOrCpf: string, password: string, remember: boolean = false): User | null => {
+    // Read users directly from localStorage to avoid race condition
+    let usersFromStorage: User[] = [];
+    try {
+      const storedUsers = localStorage.getItem(STORAGE_KEY);
+      if (storedUsers) {
+        usersFromStorage = JSON.parse(storedUsers);
+      }
+    } catch (error) {
+      console.error('Error reading users from localStorage:', error);
+      return null;
+    }
+
     const cleanCpf = emailOrCpf.replace(/\D/g, '');
     
-    const user = users.find(user => {
+    const user = usersFromStorage.find(user => {
       // Check if login is by email
       const emailMatch = user.email.toLowerCase() === emailOrCpf.toLowerCase();
       
@@ -80,14 +242,96 @@ export const useLocalStorage = () => {
       return (emailMatch || cpfMatch) && user.password === password;
     });
     
+    if (user) {
+      // Create session
+      createSession(user.id, remember);
+      
+      // Save credentials for auto-fill (only if remember me is checked)
+      if (remember) {
+        saveCredentials(emailOrCpf, password);
+      }
+    }
+    
     return user || null;
+  };
+
+  // Get current logged user
+  const getCurrentUser = (): User | null => {
+    try {
+      const session = getCurrentSession();
+      if (session) {
+        // Read users directly from localStorage to avoid race condition
+        const storedUsers = localStorage.getItem(STORAGE_KEY);
+        if (storedUsers) {
+          const usersFromStorage: User[] = JSON.parse(storedUsers);
+          const user = usersFromStorage.find(u => u.id === session.userId);
+          return user || null;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return null;
+    }
+  };
+
+  // Check if session is expired (for UI feedback)
+  const isSessionExpired = (): boolean => {
+    const session = getCurrentSession();
+    return session === null;
+  };
+
+  // Book appointment
+  const bookAppointment = (appointmentData: Omit<BookedAppointment, 'id' | 'bookedAt'>): boolean => {
+    try {
+      const newAppointment: BookedAppointment = {
+        ...appointmentData,
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        bookedAt: new Date().toISOString()
+      };
+
+      const updatedAppointments = [...appointments, newAppointment];
+      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updatedAppointments));
+      setAppointments(updatedAppointments);
+      return true;
+    } catch (error) {
+      console.error('Error booking appointment:', error);
+      return false;
+    }
+  };
+
+  // Check if appointment slot is already booked
+  const isAppointmentBooked = (doctor: string, day: string, time: string, date: string): boolean => {
+    return appointments.some(appointment => 
+      appointment.doctor === doctor &&
+      appointment.day === day &&
+      appointment.time === time &&
+      appointment.date === date
+    );
+  };
+
+  // Get user appointments
+  const getUserAppointments = (userId: string): BookedAppointment[] => {
+    return appointments.filter(appointment => appointment.userId === userId);
   };
 
   return {
     users,
+    appointments,
     saveUser,
     userExists,
     clearAllUsers,
-    authenticateUser
+    authenticateUser,
+    getCurrentUser,
+    createSession,
+    getCurrentSession,
+    clearSession,
+    saveCredentials,
+    getSavedCredentials,
+    clearSavedCredentials,
+    isSessionExpired,
+    bookAppointment,
+    isAppointmentBooked,
+    getUserAppointments
   };
 }; 
