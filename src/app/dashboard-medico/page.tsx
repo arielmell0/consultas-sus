@@ -40,18 +40,53 @@ export default function DashboardMedicoPage() {
   } = useLocalStorage();
 
   // Generate time options for select dropdowns
-  const generateTimeOptions = () => {
+  const generateTimeOptions = (selectedDate?: string) => {
     const options = [];
+    const now = moment();
+    const isToday = selectedDate && moment(selectedDate, 'DD/MM/YYYY').isSame(now, 'day');
+    
     for (let hour = 7; hour <= 18; hour++) {
       for (let minute = 0; minute < 60; minute += 30) {
-        const time = moment({ hour, minute }).format('HH:mm');
-        options.push(time);
+        const time = moment({ hour, minute });
+        
+        // Skip times that have already passed today
+        if (isToday && time.isSameOrBefore(now)) {
+          continue;
+        }
+        
+        options.push(time.format('HH:mm'));
       }
     }
     return options;
   };
 
-  const timeOptions = generateTimeOptions();
+  // Check if there's a time conflict with existing appointments
+  const hasTimeConflict = (startTime: string, endTime: string, date: string, doctorId: string): boolean => {
+    const newStart = moment(`${date} ${startTime}`, 'DD/MM/YYYY HH:mm');
+    const newEnd = moment(`${date} ${endTime}`, 'DD/MM/YYYY HH:mm');
+    
+    return appointments.some(appointment => {
+      // Skip cancelled appointments
+      if (appointment.status === 'cancelled') return false;
+      
+      // Check if it's the same doctor and same date
+      if (appointment.doctorId !== doctorId || appointment.date !== date) return false;
+      
+      const existingStart = moment(`${appointment.date} ${appointment.startTime}`, 'DD/MM/YYYY HH:mm');
+      const existingEnd = moment(`${appointment.date} ${appointment.endTime}`, 'DD/MM/YYYY HH:mm');
+      
+      // Check for overlap: new appointment starts before existing ends AND new appointment ends after existing starts
+      return newStart.isBefore(existingEnd) && newEnd.isAfter(existingStart);
+    });
+  };
+
+  // Check if the selected date and time have already passed
+  const hasDateTimePassed = (date: string, time: string): boolean => {
+    const selectedDateTime = moment(`${date} ${time}`, 'DD/MM/YYYY HH:mm');
+    return selectedDateTime.isSameOrBefore(moment());
+  };
+
+  const timeOptions = generateTimeOptions(appointmentForm.date);
 
   const loadAppointments = (doctorId: string) => {
     const doctorAppointments = getDoctorAppointments(doctorId);
@@ -130,10 +165,21 @@ export default function DashboardMedicoPage() {
     setSelectedDate(date);
     if (date) {
       const formattedDate = moment(date).format('DD/MM/YYYY');
-      setAppointmentForm(prev => ({ ...prev, date: formattedDate }));
+      setAppointmentForm(prev => ({ 
+        ...prev, 
+        date: formattedDate,
+        // Reset time selections when date changes to force user to select valid times
+        startTime: '',
+        endTime: ''
+      }));
       setShowDatePicker(false); // Close the date picker after selection
     } else {
-      setAppointmentForm(prev => ({ ...prev, date: '' }));
+      setAppointmentForm(prev => ({ 
+        ...prev, 
+        date: '',
+        startTime: '',
+        endTime: ''
+      }));
     }
   };
 
@@ -143,7 +189,13 @@ export default function DashboardMedicoPage() {
 
   const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setAppointmentForm(prev => ({ ...prev, date: value }));
+    setAppointmentForm(prev => ({ 
+      ...prev, 
+      date: value,
+      // Reset time selections when date changes
+      startTime: '',
+      endTime: ''
+    }));
     
     // Try to parse the date if it's in DD/MM/YYYY format
     if (value.length === 10) {
@@ -178,6 +230,18 @@ export default function DashboardMedicoPage() {
     
     if (endMoment.isSameOrBefore(startMoment)) {
       alert('O horário de término deve ser posterior ao horário de início.');
+      return;
+    }
+
+    // Check if the start time has already passed
+    if (hasDateTimePassed(appointmentForm.date, appointmentForm.startTime)) {
+      alert('Não é possível criar uma consulta em um horário que já passou.');
+      return;
+    }
+
+    // Check for time conflicts with existing appointments
+    if (hasTimeConflict(appointmentForm.startTime, appointmentForm.endTime, appointmentForm.date, currentDoctor.id)) {
+      alert('Já existe uma consulta agendada neste horário. Por favor, escolha outro horário.');
       return;
     }
 

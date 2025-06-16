@@ -154,7 +154,7 @@ export default function CadastroPage() {
       
       if (success) {
         alert('Usuário cadastrado com sucesso!');
-        router.push('/usuarios');
+        router.push('/login');
       } else {
         alert('Erro ao cadastrar usuário. Tente novamente.');
       }
