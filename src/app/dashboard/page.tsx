@@ -38,6 +38,7 @@ export default function DashboardPage() {
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
   const [successModalData, setSuccessModalData] = useState<SuccessModalData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [bookingLoading, setBookingLoading] = useState<string | null>(null); // Track which appointment is being booked
   
   const { bookAppointment, isAppointmentBooked, getCurrentUser, clearSession } = useLocalStorage();
 
@@ -179,7 +180,7 @@ export default function DashboardPage() {
     setSelectedSpecialty(specialty);
   };
 
-  const handleBookAppointment = (doctor: string, day: string, time: string, date: string) => {
+  const handleBookAppointment = async (doctor: string, day: string, time: string, date: string) => {
     if (!currentUser) {
       alert('Você precisa estar logado para agendar uma consulta.');
       return;
@@ -191,23 +192,40 @@ export default function DashboardPage() {
       return;
     }
 
-    const specialtyName = getSpecialtyName(selectedSpecialty);
+    // Create unique identifier for this appointment slot
+    const appointmentId = `${doctor}-${day}-${time}-${date}`;
     
-    // Book the appointment
-    const success = bookAppointment({
-      userId: currentUser.id,
-      doctor,
-      specialty: specialtyName,
-      day,
-      time,
-      date
-    });
+    // Set loading for this specific appointment
+    setBookingLoading(appointmentId);
 
-    if (success) {
-      setSuccessModalData({ doctor, day, time, date });
-      setShowSuccessModal(true);
-    } else {
+    try {
+      // Simulate processing time for better UX
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      const specialtyName = getSpecialtyName(selectedSpecialty);
+      
+      // Book the appointment
+      const success = bookAppointment({
+        userId: currentUser.id,
+        doctor,
+        specialty: specialtyName,
+        day,
+        time,
+        date
+      });
+
+      if (success) {
+        setSuccessModalData({ doctor, day, time, date });
+        setShowSuccessModal(true);
+      } else {
+        alert('Erro ao agendar consulta. Tente novamente.');
+      }
+    } catch (error) {
+      console.error('Error booking appointment:', error);
       alert('Erro ao agendar consulta. Tente novamente.');
+    } finally {
+      // Clear loading state
+      setBookingLoading(null);
     }
   };
 
@@ -424,6 +442,8 @@ export default function DashboardPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         {doctor.appointments.map((appointment, appointmentIndex) => {
                           const isBooked = isSlotBooked(doctor.name, appointment.day, appointment.time, appointment.date);
+                          const appointmentId = `${doctor.name}-${appointment.day}-${appointment.time}-${appointment.date}`;
+                          const isCurrentlyBooking = bookingLoading === appointmentId;
                           
                           return (
                             <div
@@ -435,10 +455,18 @@ export default function DashboardPage() {
                               }`}
                             >
                               <div className="flex items-center gap-3">
-                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs ${
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white flex-shrink-0 ${
                                   isBooked ? 'bg-green-600' : 'bg-blue-600'
                                 }`}>
-                                  {isBooked ? '✓' : '🕒'}
+                                  {isBooked ? (
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                    </svg>
+                                  )}
                                 </div>
                                 <div>
                                   <div className="font-semibold text-gray-800 text-sm">
@@ -467,9 +495,24 @@ export default function DashboardPage() {
                                       appointment.time,
                                       appointment.date
                                     )}
-                                    className="bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white px-4 py-2 rounded-md text-xs font-semibold uppercase tracking-wide transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
+                                    disabled={isCurrentlyBooking}
+                                    className={`px-4 py-2 rounded-md text-xs font-semibold uppercase tracking-wide transition-all duration-300 ${
+                                      isCurrentlyBooking
+                                        ? 'bg-gray-400 text-white cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-800 hover:to-blue-700 text-white hover:-translate-y-0.5 hover:shadow-md'
+                                    }`}
                                   >
-                                    Agendar
+                                    {isCurrentlyBooking ? (
+                                      <div className="flex items-center justify-center">
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Agendando...
+                                      </div>
+                                    ) : (
+                                      'Agendar'
+                                    )}
                                   </button>
                                 )}
                               </div>
