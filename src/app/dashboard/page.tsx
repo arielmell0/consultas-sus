@@ -577,12 +577,6 @@ export default function DashboardPage() {
                   Olá, {userEmail.split('@')[0]}
                 </span>
               )}
-              <Link 
-                href="/usuarios" 
-                className="text-gray-600 hover:text-blue-600 px-4 py-2 rounded-lg font-medium transition-colors duration-200"
-              >
-                Ver Usuários
-              </Link>
               <button
                 onClick={handleLogout}
                 className="border border-red-600 text-red-600 hover:bg-red-600 hover:text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200"
