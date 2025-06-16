@@ -353,16 +353,123 @@ export const useLocalStorage = () => {
 
   // Get user appointments
   const getUserAppointments = (userId: string): BookedAppointment[] => {
-    return appointments.filter(appointment => appointment.userId === userId);
+    try {
+      // Get regular appointments (old format)
+      const regularAppointments = appointments.filter(appointment => appointment.userId === userId);
+      
+      // Get doctor appointments that were booked by this user
+      const storedDoctorAppointments = localStorage.getItem(DOCTOR_APPOINTMENTS_KEY);
+      const bookedDoctorAppointments: BookedAppointment[] = [];
+      
+      if (storedDoctorAppointments) {
+        const allDoctorAppointments: DoctorAppointment[] = JSON.parse(storedDoctorAppointments);
+        
+        // Filter doctor appointments that have this user as patient
+        const userDoctorAppointments = allDoctorAppointments.filter(appointment => 
+          appointment.patientName && appointment.status === 'scheduled'
+        );
+        
+        // Get doctor information to convert to BookedAppointment format
+        const storedDoctors = localStorage.getItem(DOCTORS_KEY);
+        if (storedDoctors) {
+          const allDoctors: Doctor[] = JSON.parse(storedDoctors);
+          
+          // Get current user to match by email/cpf
+          const storedUsers = localStorage.getItem(STORAGE_KEY);
+          if (storedUsers) {
+            const allUsers: User[] = JSON.parse(storedUsers);
+            const currentUser = allUsers.find(u => u.id === userId);
+            
+            if (currentUser) {
+              userDoctorAppointments.forEach(appointment => {
+                // Check if this appointment belongs to current user (by email prefix or CPF)
+                const emailPrefix = currentUser.email.split('@')[0];
+                if (appointment.patientName === emailPrefix || 
+                    appointment.patientCpf === currentUser.cpf) {
+                  
+                  const doctor = allDoctors.find(d => d.id === appointment.doctorId);
+                  if (doctor) {
+                    // Convert to BookedAppointment format
+                    const dateParts = appointment.date.split('/');
+                    const appointmentDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
+                    const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+                    const dayOfWeek = dayNames[appointmentDate.getDay()];
+                    
+                    bookedDoctorAppointments.push({
+                      id: appointment.id,
+                      userId: userId,
+                      doctor: doctor.name,
+                      specialty: appointment.specialty,
+                      day: dayOfWeek,
+                      time: `${appointment.startTime} - ${appointment.endTime}`,
+                      date: appointment.date,
+                      bookedAt: appointment.createdAt
+                    });
+                  }
+                }
+              });
+            }
+          }
+        }
+      }
+      
+      // Combine both types of appointments and remove duplicates
+      const allAppointments = [...regularAppointments, ...bookedDoctorAppointments];
+      
+      // Remove duplicates based on doctor, date, and time
+      const uniqueAppointments = allAppointments.filter((appointment, index, self) => 
+        index === self.findIndex(a => 
+          a.doctor === appointment.doctor && 
+          a.date === appointment.date && 
+          a.time === appointment.time
+        )
+      );
+      
+      return uniqueAppointments;
+    } catch (error) {
+      console.error('Error getting user appointments:', error);
+      return appointments.filter(appointment => appointment.userId === userId);
+    }
   };
 
   // Cancel appointment
   const cancelAppointment = (appointmentId: string): boolean => {
     try {
-      const updatedAppointments = appointments.filter(appointment => appointment.id !== appointmentId);
-      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updatedAppointments));
-      setAppointments(updatedAppointments);
-      return true;
+      // First try to cancel regular appointment (old format)
+      const regularAppointment = appointments.find(appointment => appointment.id === appointmentId);
+      if (regularAppointment) {
+        const updatedAppointments = appointments.filter(appointment => appointment.id !== appointmentId);
+        localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updatedAppointments));
+        setAppointments(updatedAppointments);
+        return true;
+      }
+      
+      // If not found in regular appointments, try doctor appointments
+      const storedDoctorAppointments = localStorage.getItem(DOCTOR_APPOINTMENTS_KEY);
+      if (storedDoctorAppointments) {
+        const allDoctorAppointments: DoctorAppointment[] = JSON.parse(storedDoctorAppointments);
+        const doctorAppointment = allDoctorAppointments.find(appointment => appointment.id === appointmentId);
+        
+        if (doctorAppointment && doctorAppointment.patientName) {
+          // Clear patient information to make it available again
+          const updatedDoctorAppointments = allDoctorAppointments.map(appointment => 
+            appointment.id === appointmentId 
+              ? { 
+                  ...appointment, 
+                  patientName: undefined,
+                  patientCpf: undefined,
+                  patientPhone: undefined
+                }
+              : appointment
+          );
+          
+          localStorage.setItem(DOCTOR_APPOINTMENTS_KEY, JSON.stringify(updatedDoctorAppointments));
+          setDoctorAppointments(updatedDoctorAppointments);
+          return true;
+        }
+      }
+      
+      return false;
     } catch (error) {
       console.error('Error canceling appointment:', error);
       return false;
@@ -664,31 +771,6 @@ export const useLocalStorage = () => {
 
       localStorage.setItem(DOCTOR_APPOINTMENTS_KEY, JSON.stringify(updatedDoctorAppointments));
       setDoctorAppointments(updatedDoctorAppointments);
-
-      // Also create a booking record in the old format for compatibility
-      const doctorInfo = localStorage.getItem(DOCTORS_KEY);
-      if (doctorInfo) {
-        const doctors: Doctor[] = JSON.parse(doctorInfo);
-        const doctor = doctors.find(d => d.id === appointment.doctorId);
-        
-        if (doctor) {
-          const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-          const dateParts = appointment.date.split('/');
-          const appointmentDate = new Date(parseInt(dateParts[2]), parseInt(dateParts[1]) - 1, parseInt(dateParts[0]));
-          const dayOfWeek = dayNames[appointmentDate.getDay()];
-
-          const bookingData: Omit<BookedAppointment, 'id' | 'bookedAt'> = {
-            userId,
-            doctor: doctor.name,
-            specialty: appointment.specialty,
-            day: dayOfWeek,
-            time: `${appointment.startTime} - ${appointment.endTime}`,
-            date: appointment.date
-          };
-
-          bookAppointment(bookingData);
-        }
-      }
 
       return true;
     } catch (error) {
