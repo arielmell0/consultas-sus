@@ -29,12 +29,6 @@ export default function Home() {
             </div>
             <nav className="flex space-x-4">
               <Link 
-                href="/usuarios" 
-                className="text-gray-600 hover:text-blue-600 px-6 py-2 rounded-lg font-medium transition-colors duration-200"
-              >
-                Ver Usuários
-              </Link>
-              <Link 
                 href="/dashboard" 
                 className="text-gray-600 hover:text-blue-600 px-6 py-2 rounded-lg font-medium transition-colors duration-200"
               >
