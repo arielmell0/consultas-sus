@@ -157,7 +157,7 @@ Este projeto foi desenvolvido com foco educacional e demonstra:
 
 ## 👨‍💻 Desenvolvimento
 
-Este projeto foi desenvolvido como parte do curso de [Nome do Curso] na ULBRA, demonstrando conhecimentos em:
+Este projeto foi desenvolvido como parte do curso de ADS na ULBRA, demonstrando conhecimentos em:
 
 - Desenvolvimento web moderno
 - React e Next.js
